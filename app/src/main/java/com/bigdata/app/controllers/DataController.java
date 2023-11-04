@@ -4,6 +4,11 @@ import com.bigdata.app.models.Plan;
 import com.bigdata.app.models.ResponseObject;
 import com.bigdata.app.services.JsonSchemaService;
 import com.bigdata.app.services.DataService;
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.ArrayNode;
 import lombok.RequiredArgsConstructor;
 import org.json.JSONObject;
 import org.springframework.http.HttpHeaders;
@@ -152,4 +157,58 @@ public class DataController {
             return new ResponseEntity<>(r, HttpStatus.NOT_FOUND);
         }
     }
+
+    @PatchMapping(value = "/{type}/{planId}")
+    ResponseEntity patchPlanByTypeAndId(@PathVariable String type, @PathVariable String planId, @RequestHeader HttpHeaders requestHeaders, @RequestBody String request){
+        try {
+        String key = type + ":" + planId;
+
+        if (!dataService.ifKeyIsPresent(key)) {
+            ResponseObject r = new ResponseObject("ID couldn't be located",  HttpStatus.NOT_FOUND.value(), new ArrayList<>());
+            return new ResponseEntity<>(r, HttpStatus.NOT_FOUND);
+        }
+        String etagFromCache = dataService.fetchEtag(key);
+        String ifMatchHeader = requestHeaders.getFirst("If-Match");
+
+        if (ifMatchHeader != null && !ifMatchHeader.equals(etagFromCache)) {
+            ResponseObject r = new ResponseObject("Pre Condition Failed", HttpStatus.PRECONDITION_FAILED.value(), new ArrayList<Plan>());
+            return new ResponseEntity<>( HttpStatus.PRECONDITION_FAILED);
+        }
+
+        String ifNoneMatchHeader = requestHeaders.getFirst("If-None-Match");
+        if (ifNoneMatchHeader != null && ifNoneMatchHeader.equals(etagFromCache)) {
+            ResponseObject r = new ResponseObject("", HttpStatus.NOT_MODIFIED.value(), new ArrayList<Plan>());
+            return new ResponseEntity<>( HttpStatus.NOT_MODIFIED);
+        }
+            ObjectMapper objectMapper = new ObjectMapper();
+            JsonNode requestBodyJson = objectMapper.readTree(request);
+            Map<String, Object> existingPlanMap = dataService.getPlanById(key);
+            System.out.println("Request body: " + request);
+            System.out.println("Existing plan: " + existingPlanMap);
+
+            List<Map<String, Object>> existingLinkedPlanServices = (List<Map<String, Object>>) existingPlanMap.getOrDefault("linkedPlanServices", new ArrayList<>());
+            ArrayNode newLinkedPlanServices = (ArrayNode) requestBodyJson.get("linkedPlanServices");
+
+            for (JsonNode newLinkedPlanService : newLinkedPlanServices) {
+                Map<String, Object> newLinkedPlanServiceMap = objectMapper.convertValue(newLinkedPlanService, new TypeReference<Map<String, Object>>() {});
+                existingLinkedPlanServices.add(newLinkedPlanServiceMap);
+            }
+
+            existingPlanMap.put("linkedPlanServices", existingLinkedPlanServices);
+            JSONObject updatedPlanJson = new JSONObject(objectMapper.writeValueAsString(existingPlanMap));
+            String newEtag = dataService.saveData(updatedPlanJson, key);
+            dataService.actionLogger(objectMapper.writeValueAsString(existingPlanMap), "PATCH");
+
+            ResponseObject responseObject = new ResponseObject("Data update Successful", HttpStatus.OK.value(), existingPlanMap.get("objectId"));
+            return ResponseEntity.ok().eTag(newEtag).body(responseObject);
+
+        } catch (JsonProcessingException e) {
+            ResponseObject responseObject = new ResponseObject("BAD REQUEST",  HttpStatus.BAD_REQUEST.value(), new ArrayList<>());
+            return new ResponseEntity<>(responseObject, HttpStatus.BAD_REQUEST);
+        } catch (RuntimeException e) {
+            ResponseObject responseObject = new ResponseObject("INTERNAL SERVER ERROR",  HttpStatus.BAD_REQUEST.value(), new ArrayList<>());
+            return new ResponseEntity<>(responseObject, HttpStatus.INTERNAL_SERVER_ERROR);
+        }
+    }
+
 }

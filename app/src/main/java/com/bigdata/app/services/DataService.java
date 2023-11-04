@@ -208,4 +208,11 @@ public class DataService {
         httpHeaders.add("Content-Type","application/json");
         return httpHeaders;
     }
+
+    public void actionLogger(String request, String operation) {
+        Map<String, String> actionMap = new HashMap<>();
+        actionMap.put("Operation", operation);
+        actionMap.put("Body", request);
+        System.out.println("Sending forward: " + actionMap);
+    }
 }
