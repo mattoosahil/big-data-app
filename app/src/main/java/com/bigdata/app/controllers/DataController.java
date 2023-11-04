@@ -183,8 +183,6 @@ public class DataController {
             ObjectMapper objectMapper = new ObjectMapper();
             JsonNode requestBodyJson = objectMapper.readTree(request);
             Map<String, Object> existingPlanMap = dataService.getPlanById(key);
-            System.out.println("Request body: " + request);
-            System.out.println("Existing plan: " + existingPlanMap);
 
             List<Map<String, Object>> existingLinkedPlanServices = (List<Map<String, Object>>) existingPlanMap.getOrDefault("linkedPlanServices", new ArrayList<>());
             ArrayNode newLinkedPlanServices = (ArrayNode) requestBodyJson.get("linkedPlanServices");
