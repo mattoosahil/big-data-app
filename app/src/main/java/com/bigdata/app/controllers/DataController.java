@@ -1,5 +1,6 @@
 package com.bigdata.app.controllers;
 
+import com.bigdata.app.AppApplication;
 import com.bigdata.app.models.Plan;
 import com.bigdata.app.models.ResponseObject;
 import com.bigdata.app.services.JsonSchemaService;
@@ -11,12 +12,14 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ArrayNode;
 import lombok.RequiredArgsConstructor;
 import org.json.JSONObject;
+import org.springframework.amqp.rabbit.core.RabbitTemplate;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 import java.net.URI;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -27,6 +30,9 @@ public class DataController {
 
     private final DataService dataService;
     private final JsonSchemaService jsonSchemaService;
+
+    private final RabbitTemplate template;
+
 
     @GetMapping(value = "/getall")
     ResponseEntity getAllData() {
@@ -62,6 +68,11 @@ public class DataController {
                 JSONObject dataObject = new JSONObject();
                 dataObject.put("ObjectId", jsonObject.get("objectId"));
                 ResponseObject responseObject = new ResponseObject("Data added successfully",  HttpStatus.CREATED.value(), jsonObject.get("objectId"));
+                Map<String, String> message = new HashMap<>();
+                message.put("operation", "SAVE");
+                message.put("body", request);
+                // System.out.println("Sending message: " + message);
+                template.convertAndSend(AppApplication.queueName, message);
                 return ResponseEntity.created(new URI("/create/" + key)).eTag(eTag)
                         .body(responseObject);
             } else {
@@ -105,8 +116,15 @@ public class DataController {
                     ResponseObject r = new ResponseObject("",  HttpStatus.NOT_MODIFIED.value(), new ArrayList<Plan>());
                     return new ResponseEntity<>(r, HttpStatus.NOT_MODIFIED);
                 }
+                Map<String, Object> plan = dataService.getPlanById(key);
+                Map<String, String> message = new HashMap<>();
+                message.put("operation", "DELETE");
+                message.put("body",  new JSONObject(plan).toString());
+                // System.out.println("Sending message: " + message);
+                template.convertAndSend(AppApplication.queueName, message);
                 dataService.deleteData(key);
                 ResponseObject r = new ResponseObject("Data deletion successful", HttpStatus.OK.value(), new ArrayList<>());
+
                 return new ResponseEntity<>(r, HttpStatus.NO_CONTENT);
             }
         } catch (Exception e) {
@@ -198,6 +216,11 @@ public class DataController {
             dataService.actionLogger(objectMapper.writeValueAsString(existingPlanMap), "PATCH");
 
             ResponseObject responseObject = new ResponseObject("Data update Successful", HttpStatus.OK.value(), existingPlanMap.get("objectId"));
+            Map<String, String> message = new HashMap<>();
+            message.put("operation", "SAVE");
+            message.put("body", request);
+            // System.out.println("Sending message: " + message);
+            template.convertAndSend(AppApplication.queueName, message);
             return ResponseEntity.ok().eTag(newEtag).body(responseObject);
 
         } catch (JsonProcessingException e) {
